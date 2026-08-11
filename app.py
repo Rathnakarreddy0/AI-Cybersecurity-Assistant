@@ -1,793 +1,655 @@
-import os
-import re
-from copy import deepcopy
-
 import streamlit as st
-
-try:
-    from groq import Groq
-    GROQ_AVAILABLE = True
-except ImportError:
-    GROQ_AVAILABLE = False
-
+import os
+from groq import Groq
 
 # ============================================================
-# CONFIG
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
-    page_title="CyberStart Lab",
+    page_title="AI Cybersecurity Assistant",
     page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded",
+    layout="wide"
 )
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+st.title("🛡️ AI Cybersecurity Assistant")
+st.caption("AI-powered security analysis, investigation and reporting toolkit")
+
+# ============================================================
+# API CONFIGURATION
+# ============================================================
+
+api_key = os.environ.get("GROQ_API_KEY")
+
+if not api_key:
+    try:
+        if "GROQ_API_KEY" in st.secrets:
+            api_key = st.secrets["GROQ_API_KEY"]
+    except Exception:
+        pass
+
+if not api_key:
+    st.error(
+        "⚠️ GROQ_API_KEY not configured.\n\n"
+        "Set it as an environment variable or Streamlit secret."
+    )
+    st.stop()
+
+client = Groq(api_key=api_key)
+
+MODEL = "llama-3.3-70b-versatile"
 
 
 # ============================================================
-# LEVELS
+# HELPER FUNCTION
 # ============================================================
 
-LEVELS = [
-    (0, "Newbie"),
-    (100, "Terminal Explorer"),
-    (250, "File Hunter"),
-    (500, "Command Apprentice"),
-    (800, "System Explorer"),
-    (1200, "Cyber Beginner"),
-    (1800, "Cyber Learner"),
-    (2500, "Lab Master"),
-]
+def ask_ai(prompt, temperature=0.2):
+    try:
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": """
+You are an experienced cybersecurity analyst.
 
+Your job is to help users understand security data,
+logs, network traffic, vulnerabilities and defensive
+investigations.
 
-# ============================================================
-# LINUX FILESYSTEM
-# ============================================================
-
-def create_linux_fs():
-    return {
-        "/": {
-            "type": "dir",
-            "children": {
-                "home": {
-                    "type": "dir",
-                    "children": {
-                        "student": {
-                            "type": "dir",
-                            "children": {
-                                "Documents": {
-                                    "type": "dir",
-                                    "children": {
-                                        "notes.txt": {
-                                            "type": "file",
-                                            "content": (
-                                                "Linux is fun!\n"
-                                                "Remember: pwd tells you where you are.\n"
-                                            ),
-                                        },
-                                        "commands.txt": {
-                                            "type": "file",
-                                            "content": (
-                                                "pwd\n"
-                                                "ls\n"
-                                                "cd\n"
-                                                "cat\n"
-                                                "mkdir\n"
-                                                "touch\n"
-                                            ),
-                                        },
-                                    },
-                                },
-                                "Downloads": {
-                                    "type": "dir",
-                                    "children": {
-                                        "readme.txt": {
-                                            "type": "file",
-                                            "content": (
-                                                "Welcome to CyberStart Lab.\n"
-                                            ),
-                                        },
-                                    },
-                                },
-                                ".hidden_note": {
-                                    "type": "file",
-                                    "content": (
-                                        "Hidden files can be displayed with ls -a.\n"
-                                    ),
-                                },
-                                "practice_notes.txt": {
-                                    "type": "file",
-                                    "content": (
-                                        "I should practice Linux every day.\n"
-                                    ),
-                                },
-                                "secret.txt": {
-                                    "type": "file",
-                                    "content": (
-                                        "FLAG{linux_file_hunter}\n"
-                                    ),
-                                },
-                            },
-                        },
-                    },
+Rules:
+1. Be technically accurate.
+2. Clearly separate evidence from assumptions.
+3. Never invent information that is not present in the input.
+4. Explain technical terms when useful.
+5. Prefer practical defensive investigation steps.
+6. For CTF/lab material, analysis and commands are allowed.
+7. Do not claim that a vulnerability exists unless the evidence
+   supports it.
+8. When uncertain, explicitly say what additional information
+   would be required.
+"""
                 },
-                "etc": {
-                    "type": "dir",
-                    "children": {
-                        "hostname": {
-                            "type": "file",
-                            "content": "cyberstart-linux\n",
-                        },
-                        "hosts": {
-                            "type": "file",
-                            "content": (
-                                "127.0.0.1 localhost\n"
-                                "127.0.1.1 cyberstart-linux\n"
-                            ),
-                        },
-                    },
-                },
-                "tmp": {
-                    "type": "dir",
-                    "children": {},
-                },
-                "var": {
-                    "type": "dir",
-                    "children": {
-                        "log": {
-                            "type": "dir",
-                            "children": {
-                                "system.log": {
-                                    "type": "file",
-                                    "content": (
-                                        "INFO System started\n"
-                                        "INFO User student logged in\n"
-                                    ),
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        },
-    }
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=temperature
+        )
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+        return f"❌ API Error: {str(e)}"
 
 
 # ============================================================
-# WINDOWS FILESYSTEM
+# TABS
 # ============================================================
 
-def create_windows_fs():
-    return {
-        "C:\\": {
-            "type": "dir",
-            "children": {
-                "Users": {
-                    "type": "dir",
-                    "children": {
-                        "Student": {
-                            "type": "dir",
-                            "children": {
-                                "Documents": {
-                                    "type": "dir",
-                                    "children": {
-                                        "notes.txt": {
-                                            "type": "file",
-                                            "content": (
-                                                "Windows command practice.\n"
-                                            ),
-                                        },
-                                    },
-                                },
-                                "Downloads": {
-                                    "type": "dir",
-                                    "children": {
-                                        "readme.txt": {
-                                            "type": "file",
-                                            "content": (
-                                                "Welcome to CyberStart Lab.\n"
-                                            ),
-                                        },
-                                    },
-                                },
-                                "Desktop": {
-                                    "type": "dir",
-                                    "children": {},
-                                },
-                                "secret.txt": {
-                                    "type": "file",
-                                    "content": (
-                                        "FLAG{windows_file_hunter}\n"
-                                    ),
-                                },
-                            },
-                        },
-                    },
-                },
-                "Windows": {
-                    "type": "dir",
-                    "children": {
-                        "System32": {
-                            "type": "dir",
-                            "children": {},
-                        },
-                    },
-                },
-                "Program Files": {
-                    "type": "dir",
-                    "children": {},
-                },
-                "Temp": {
-                    "type": "dir",
-                    "children": {},
-                },
-            },
-        },
-    }
+tabs = st.tabs([
+    "🔍 Log Analyzer",
+    "🌐 Nmap Analyzer",
+    "📡 HTTP Analyzer",
+    "🧠 KQL Generator",
+    "🚨 Alert Analyzer",
+    "📝 Report Generator"
+])
 
 
 # ============================================================
-# SESSION STATE
+# TAB 1 - LOG ANALYZER
 # ============================================================
 
-def initialize_state():
-    defaults = {
-        "xp": 0,
-        "completed_missions": [],
-        "completed_quizzes": [],
-        "achievements": [],
-        "linux_cwd": "/home/student",
-        "windows_cwd": r"C:\Users\Student",
-        "linux_output": [],
-        "windows_output": [],
-        "linux_fs": None,
-        "windows_fs": None,
-    }
+with tabs[0]:
 
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = deepcopy(value)
+    st.header("🔍 Security Log Analyzer")
 
-    if st.session_state.linux_fs is None:
-        st.session_state.linux_fs = create_linux_fs()
+    st.write(
+        "Paste authentication, web server, firewall, Linux, "
+        "Windows or application logs and identify suspicious activity."
+    )
 
-    if st.session_state.windows_fs is None:
-        st.session_state.windows_fs = create_windows_fs()
+    log_type = st.selectbox(
+        "Log Type",
+        [
+            "Linux Authentication",
+            "Windows Security",
+            "Web Server",
+            "Firewall",
+            "DNS",
+            "Application",
+            "Unknown"
+        ]
+    )
 
+    logs = st.text_area(
+        "Paste Logs",
+        height=350,
+        placeholder="Paste security logs here..."
+    )
 
-initialize_state()
+    if st.button("🔎 Analyze Logs", type="primary"):
 
-
-# ============================================================
-# LINUX PATH FUNCTIONS
-# ============================================================
-
-def normalize_linux_path(path, cwd):
-    if not path:
-        return cwd
-
-    if not path.startswith("/"):
-        path = cwd.rstrip("/") + "/" + path
-
-    parts = []
-
-    for part in path.split("/"):
-        if part in ("", "."):
-            continue
-
-        if part == "..":
-            if parts:
-                parts.pop()
+        if not logs.strip():
+            st.warning("Please provide logs.")
         else:
-            parts.append(part)
 
-    return "/" + "/".join(parts)
+            prompt = f"""
+Analyze the following {log_type} logs.
 
+Provide the response using these sections:
 
-def linux_get_node(path):
-    if path == "/":
-        return st.session_state.linux_fs["/"]
+## 1. Executive Summary
 
-    node = st.session_state.linux_fs["/"]
+## 2. Important Events
 
-    parts = [part for part in path.split("/") if part]
+## 3. Suspicious Indicators
+Include:
+- IP addresses
+- usernames
+- domains
+- URLs
+- ports
+- processes
+- timestamps
+- error messages
 
-    for part in parts:
-        if node.get("type") != "dir":
-            return None
+Only include indicators actually present in the logs.
 
-        node = node.get("children", {}).get(part)
+## 4. Possible Attack Techniques
 
-        if node is None:
-            return None
+Map suspicious activity to likely MITRE ATT&CK
+techniques where reasonable.
 
-    return node
+## 5. Timeline
 
+Create a chronological investigation timeline.
 
-def linux_parent(path):
-    path = path.rstrip("/")
+## 6. Severity
 
-    if path == "":
-        return None
+Classify findings as:
+- Critical
+- High
+- Medium
+- Low
+- Informational
 
-    parts = [part for part in path.split("/") if part]
+Explain why.
 
-    if len(parts) <= 1:
-        return "/"
+## 7. Recommended Investigation
 
-    return "/" + "/".join(parts[:-1])
+Give defensive investigation steps.
+
+LOGS:
+
+{logs}
+"""
+
+            with st.spinner("Analyzing security logs..."):
+                result = ask_ai(prompt)
+
+            st.success("Analysis complete")
+            st.markdown(result)
 
 
 # ============================================================
-# WINDOWS PATH FUNCTIONS
+# TAB 2 - NMAP ANALYZER
 # ============================================================
 
-def normalize_windows_path(path, cwd):
-    if not path:
-        return cwd
+with tabs[1]:
 
-    path = path.replace("/", "\\")
+    st.header("🌐 Nmap Output Analyzer")
 
-    if len(path) >= 2 and path[1] == ":":
-        absolute = path
-    else:
-        absolute = cwd.rstrip("\\") + "\\" + path
+    st.write(
+        "Paste authorized Nmap scan output and get a structured "
+        "security assessment."
+    )
 
-    drive = absolute[:2]
-    parts = []
+    target = st.text_input(
+        "Target / Lab Name",
+        placeholder="e.g. Internal Lab Server"
+    )
 
-    for part in absolute[2:].split("\\"):
-        if part in ("", "."):
-            continue
+    nmap_output = st.text_area(
+        "Nmap Output",
+        height=350,
+        placeholder="Paste nmap output here..."
+    )
 
-        if part == "..":
-            if parts:
-                parts.pop()
+    if st.button("🔎 Analyze Nmap", type="primary"):
+
+        if not nmap_output.strip():
+            st.warning("Please provide Nmap output.")
         else:
-            parts.append(part)
 
-    if parts:
-        return drive + "\\" + "\\".join(parts)
+            prompt = f"""
+Analyze this Nmap result from an authorized security assessment.
 
-    return drive + "\\"
+Target:
+{target}
 
+Nmap output:
+{nmap_output}
 
-def windows_get_node(path):
-    path = path.replace("/", "\\")
+Produce:
 
-    if path != "C:\\":
-        path = path.rstrip("\\")
+# 1. Scan Summary
 
-    if path == "C:\\":
-        return st.session_state.windows_fs["C:\\"]
+# 2. Open Ports
 
-    node = st.session_state.windows_fs["C:\\"]
-    remainder = path[3:]
+Create a table containing:
 
-    for part in remainder.split("\\"):
-        if not part:
-            continue
+| Port | Protocol | Service | Version | Risk |
 
-        if node.get("type") != "dir":
-            return None
+Only use information present in the scan.
 
-        node = node.get("children", {}).get(part)
+# 3. Interesting Services
 
-        if node is None:
-            return None
+Explain why each exposed service deserves attention.
 
-    return node
+# 4. Potential Security Concerns
+
+Identify plausible security concerns based on the
+detected services and versions.
+
+Do not claim exploitation is possible without evidence.
+
+# 5. Recommended Validation
+
+Provide safe, authorized validation steps for each
+interesting service.
+
+# 6. Hardening Recommendations
+
+Give defensive recommendations.
+
+# 7. Priority
+
+Rank the most important findings from highest to lowest.
+"""
+
+            with st.spinner("Analyzing Nmap output..."):
+                result = ask_ai(prompt)
+
+            st.markdown(result)
 
 
 # ============================================================
-# LINUX COMMANDS
+# TAB 3 - HTTP ANALYZER
 # ============================================================
 
-def linux_ls(args):
-    cwd = st.session_state.linux_cwd
-
-    show_hidden = any(option in args for option in ["-a", "-la", "-al"])
-    long_format = any(option in args for option in ["-l", "-la", "-al"])
-
-    paths = [arg for arg in args if not arg.startswith("-")]
-
-    target = cwd
-    if paths:
-        target = normalize_linux_path(paths[0], cwd)
-
-    node = linux_get_node(target)
-
-    if node is None:
-        return f"ls: cannot access '{target}': No such file or directory"
-
-    if node["type"] == "file":
-        return target
-
-    names = list(node.get("children", {}).keys())
-
-    if not show_hidden:
-        names = [name for name in names if not name.startswith(".")]
-
-    if long_format:
-        lines = []
-        for name in names:
-            child = node["children"][name]
-            if child["type"] == "dir":
-                permissions = "drwxr-xr-x"
-            else:
-                permissions = "-rw-r--r--"
-            lines.append(f"{permissions}  student  {name}")
-        return "\n".join(lines)
-
-    return "  ".join(names)
-
-
-def linux_find(args):
-    if not args:
-        return "find: missing path"
-
-    start = args[0]
-    if start.startswith("-"):
-        start = "."
-
-    start = normalize_linux_path(start, st.session_state.linux_cwd)
-    node = linux_get_node(start)
-
-    if node is None:
-        return f"find: '{start}': No such file or directory"
-
-    pattern = None
-    if "-name" in args:
-        index = args.index("-name")
-        if index + 1 < len(args):
-            pattern = args[index + 1].strip("'\"")
-
-    results = []
-
-    def walk(current_path, current_node):
-        if current_node["type"] != "dir":
-            return
-
-        for name, child in current_node.get("children", {}).items():
-            child_path = current_path.rstrip("/") + "/" + name
-
-            if pattern is None:
-                results.append(child_path)
-            else:
-                regex = "^" + re.escape(pattern).replace(r"\*", ".*") + "$"
-                if re.match(regex, name):
-                    results.append(child_path)
-
-            if child["type"] == "dir":
-                walk(child_path, child)
-
-    walk(start, node)
-    return "\n".join(results)
-
-
-def linux_grep(args):
-    if len(args) < 2:
-        return "Usage: grep PATTERN FILE"
-
-    pattern = args[0].strip("'\"")
-    filename = args[-1].strip("'\"")
-
-    path = normalize_linux_path(filename, st.session_state.linux_cwd)
-    node = linux_get_node(path)
-
-    if node is None or node["type"] != "file":
-        return f"grep: {filename}: No such file or directory"
-
-    matches = []
-    for line in node["content"].splitlines():
-        if pattern.lower() in line.lower():
-            matches.append(line)
-
-    return "\n".join(matches)
-
-
-def execute_linux(command):
-    command = command.strip()
-    if not command:
-        return ""
-
-    parts = command.split()
-    cmd = parts[0]
-    args = parts[1:]
-
-    if cmd == "help":
-        return (
-            "Supported commands:\n"
-            "pwd\nls\ncd\ncat\nmkdir\ntouch\nrm\n"
-            "find\ngrep\nwhoami\nid\nuname\necho\nman\nclear"
-        )
-
-    if cmd == "pwd":
-        return st.session_state.linux_cwd
-
-    if cmd == "whoami":
-        return "student"
-
-    if cmd == "id":
-        return "uid=1000(student) gid=1000(student) groups=1000(student)"
-
-    if cmd == "uname":
-        if "-a" in args:
-            return "Linux cyberstart 6.1.0 x86_64 GNU/Linux"
-        return "Linux"
-
-    if cmd == "ls":
-        return linux_ls(args)
-
-    if cmd == "cd":
-        target = args[0] if args else "/home/student"
-        new_path = normalize_linux_path(target, st.session_state.linux_cwd)
-        node = linux_get_node(new_path)
-
-        if node is None:
-            return f"bash: cd: {target}: No such file or directory"
-
-        if node["type"] != "dir":
-            return f"bash: cd: {target}: Not a directory"
-
-        st.session_state.linux_cwd = new_path
-        return ""
-
-    if cmd == "cat":
-        if not args:
-            return "cat: missing file operand"
-
-        path = normalize_linux_path(args[0], st.session_state.linux_cwd)
-        node = linux_get_node(path)
-
-        if node is None:
-            return f"cat: {args[0]}: No such file or directory"
-
-        if node["type"] != "file":
-            return f"cat: {args[0]}: Is a directory"
-
-        return node["content"]
-
-    if cmd in ["head", "tail"]:
-        if not args:
-            return f"{cmd}: missing file"
-
-        path = normalize_linux_path(args[-1], st.session_state.linux_cwd)
-        node = linux_get_node(path)
-
-        if node is None or node["type"] != "file":
-            return f"{cmd}: file not found"
-
-        lines = node["content"].splitlines()
-        if cmd == "head":
-            return "\n".join(lines[:10])
-
-        return "\n".join(lines[-10:])
-
-    if cmd == "mkdir":
-        if not args:
-            return "mkdir: missing operand"
-
-        name = args[-1]
-        parent = linux_get_node(st.session_state.linux_cwd)
-
-        if name in parent["children"]:
-            return f"mkdir: cannot create directory '{name}': File exists"
-
-        parent["children"][name] = {"type": "dir", "children": {}}
-        return ""
-
-    if cmd == "touch":
-        if not args:
-            return "touch: missing file operand"
-
-        name = args[-1]
-        parent = linux_get_node(st.session_state.linux_cwd)
-
-        if name not in parent["children"]:
-            parent["children"][name] = {"type": "file", "content": ""}
-
-        return ""
-
-    if cmd == "rm":
-        if not args:
-            return "rm: missing operand"
-
-        target = normalize_linux_path(args[-1], st.session_state.linux_cwd)
-        if target == "/":
-            return "rm: cannot remove root"
-
-        parent_path = linux_parent(target)
-        parent = linux_get_node(parent_path)
-        name = target.rstrip("/").split("/")[-1]
-
-        if parent is None or name not in parent.get("children", {}):
-            return f"rm: cannot remove '{args[-1]}': No such file or directory"
-
-        del parent["children"][name]
-        return ""
-
-    if cmd == "find":
-        return linux_find(args)
-
-    if cmd == "grep":
-        return linux_grep(args)
-
-    if cmd == "echo":
-        return " ".join(args)
-
-    if cmd == "man":
-        manuals = {
-            "ls": "ls - list directory contents",
-            "cd": "cd - change the current directory",
-            "pwd": "pwd - print working directory",
-            "cat": "cat - display file contents",
-            "find": "find - search for files",
-            "grep": "grep - search text",
-            "mkdir": "mkdir - create directories",
-            "touch": "touch - create files",
-        }
-        topic = args[0] if args else ""
-        return manuals.get(topic, "No manual entry.")
-
-    if cmd == "clear":
-        st.session_state.linux_output = []
-        return ""
-
-    return f"bash: {cmd}: command not found"
-
-
-# ============================================================
-# WINDOWS COMMANDS
-# ============================================================
-
-def windows_dir():
-    node = windows_get_node(st.session_state.windows_cwd)
-
-    if node is None:
-        return "The system cannot find the path specified."
-
-    lines = [f" Directory of {st.session_state.windows_cwd}", ""]
-
-    for name, child in node.get("children", {}).items():
-        if child["type"] == "dir":
-            lines.append(f"<DIR>          {name}")
+with tabs[2]:
+
+    st.header("📡 HTTP Request / Response Analyzer")
+
+    st.write(
+        "Analyze HTTP traffic captured during an authorized "
+        "security assessment or CTF."
+    )
+
+    http_data = st.text_area(
+        "HTTP Request / Response",
+        height=450,
+        placeholder="""GET /login HTTP/1.1
+Host: example.local
+Cookie: session=...
+User-Agent: ...
+
+HTTP/1.1 200 OK
+Content-Type: text/html
+..."""
+    )
+
+    if st.button("🔎 Analyze HTTP", type="primary"):
+
+        if not http_data.strip():
+            st.warning("Please provide HTTP traffic.")
         else:
-            lines.append(f"               {name}")
 
-    return "\n".join(lines)
+            prompt = f"""
+Analyze the following HTTP request/response.
 
+{http_data}
 
-def execute_windows(command):
-    command = command.strip()
-    if not command:
-        return ""
+Return:
 
-    parts = command.split()
-    cmd = parts[0].lower()
-    args = parts[1:]
+## 1. Request Summary
 
-    if cmd == "help":
-        return (
-            "Supported commands:\n"
-            "DIR\nCD\nTYPE\nCLS\nWHOAMI\nHOSTNAME\nIPCONFIG\nPING\nMKDIR\nECHO"
-        )
+## 2. Response Summary
 
-    if cmd == "cls":
-        st.session_state.windows_output = []
-        return ""
+## 3. Interesting Headers
 
-    if cmd == "cd":
-        if not args:
-            return st.session_state.windows_cwd
+Discuss headers such as:
+- Cookie
+- Authorization
+- Host
+- Origin
+- Referer
+- Content-Type
+- Server
+- Security headers
 
-        new_path = normalize_windows_path(args[0], st.session_state.windows_cwd)
-        node = windows_get_node(new_path)
+## 4. Authentication / Session Observations
 
-        if node is None:
-            return "The system cannot find the path specified."
+## 5. Potential Security Issues
 
-        if node["type"] != "dir":
-            return "The directory name is invalid."
+Consider common web security categories such as:
+- Authentication weaknesses
+- Authorization issues
+- Session management
+- Input validation
+- Information disclosure
+- Security header issues
+- CORS configuration
 
-        st.session_state.windows_cwd = new_path
-        return ""
+Do not claim a vulnerability merely because a header
+or parameter exists.
 
-    if cmd == "dir":
-        return windows_dir()
+## 6. CTF Investigation Ideas
 
-    if cmd == "type":
-        if not args:
-            return "The syntax of the command is incorrect."
+If this appears to be CTF traffic, list reasonable
+next investigation steps.
 
-        path = normalize_windows_path(args[0], st.session_state.windows_cwd)
-        node = windows_get_node(path)
+## 7. Defensive Recommendations
+"""
 
-        if node is None:
-            return "The system cannot find the file specified."
+            with st.spinner("Analyzing HTTP traffic..."):
+                result = ask_ai(prompt)
 
-        if node["type"] != "file":
-            return "The system cannot access the file."
-
-        return node["content"]
-
-    if cmd == "whoami":
-        return r"cyberstart\student"
-
-    if cmd == "hostname":
-        return "CYBERSTART-PC"
-
-    if cmd == "ipconfig":
-        return (
-            "Windows IP Configuration\n\n"
-            "Ethernet adapter Ethernet:\n\n"
-            "   IPv4 Address. . . . . . . . . . . : 192.168.1.25\n"
-            "   Subnet Mask . . . . . . . . . . . : 255.255.255.0\n"
-            "   Default Gateway . . . . . . . . . : 192.168.1.1"
-        )
-
-    if cmd == "ping":
-        target = args[0] if args else "127.0.0.1"
-        return (
-            f"Pinging {target} with 32 bytes of data:\n\n"
-            f"Reply from {target}: bytes=32 time<1ms TTL=128\n"
-            f"Reply from {target}: bytes=32 time<1ms TTL=128\n\n"
-            "Ping statistics:\n"
-            "    Packets: Sent = 2, Received = 2, Lost = 0 (0% loss)"
-        )
-
-    if cmd in ["mkdir", "md"]:
-        if not args:
-            return "The syntax of the command is incorrect."
-
-        name = args[-1]
-        parent = windows_get_node(st.session_state.windows_cwd)
-
-        if name in parent["children"]:
-            return "A subdirectory or file with that name already exists."
-
-        parent["children"][name] = {"type": "dir", "children": {}}
-        return ""
-
-    if cmd == "echo":
-        return " ".join(args)
-
-    return f"'{cmd}' is not recognized as an internal or external command."
+            st.markdown(result)
 
 
 # ============================================================
-# LESSONS
+# TAB 4 - KQL GENERATOR
 # ============================================================
 
-LINUX_LESSONS = {
-    "What is Linux?": """
-### What is Linux?
+with tabs[3]:
 
-Linux is an operating-system family widely used
-on servers, cloud systems, embedded devices and
-security labs.
+    st.header("🧠 Natural Language → KQL")
 
-A terminal gives you a text-based way to interact
-with the operating system.
+    st.write(
+        "Describe the investigation you want to perform and "
+        "generate a Microsoft Sentinel / Defender-style KQL query."
+    )
 
-You will work with:
+    available_tables = st.text_input(
+        "Available Tables",
+        placeholder="e.g. DnsEvents, NetworkFlow, Email, AuthenticationEvents"
+    )
 
-- Files
-- Directories
-- Users
-- Permissions
-- Processes
-- Networking
-""",
-    "pwd": """
-### pwd
+    request = st.text_area(
+        "Describe Your Investigation",
+        height=200,
+        placeholder=(
+            "Example: Find clients that contacted a suspicious "
+            "domain and show their first and last communication."
+        )
+    )
 
-`pwd` means **Print Working Directory**.
+    if st.button("⚡ Generate KQL", type="primary"):
 
-It tells you where you currently are.
+        if not request.strip():
+            st.warning("Please describe the query you want.")
+        else:
 
-Example:
+            prompt = f"""
+You are a Microsoft Sentinel KQL expert.
 
-```bash
-pwd
+Available tables:
+
+{available_tables}
+
+User requirement:
+
+{request}
+
+Generate:
+
+## KQL Query
+
+Put the complete query inside a code block.
+
+## Explanation
+
+Explain the query line by line.
+
+## Expected Output
+
+Explain what each important output column represents.
+
+## Possible Improvements
+
+Suggest useful filters or extensions.
+
+Important:
+- Do not invent columns if the user has supplied a schema.
+- If a required column is unknown, clearly identify it as an assumption.
+- Prefer readable KQL.
+"""
+
+            with st.spinner("Generating KQL..."):
+                result = ask_ai(prompt, temperature=0.1)
+
+            st.markdown(result)
+
+
+# ============================================================
+# TAB 5 - ALERT ANALYZER
+# ============================================================
+
+with tabs[4]:
+
+    st.header("🚨 Security Alert Analyzer")
+
+    alert_name = st.text_input(
+        "Alert Name",
+        placeholder="Suspicious PowerShell Execution"
+    )
+
+    alert_data = st.text_area(
+        "Alert Details",
+        height=350,
+        placeholder="Paste SIEM/EDR alert details..."
+    )
+
+    if st.button("🚨 Investigate Alert", type="primary"):
+
+        if not alert_data.strip():
+            st.warning("Please provide alert details.")
+        else:
+
+            prompt = f"""
+Analyze this security alert.
+
+Alert:
+{alert_name}
+
+Details:
+{alert_data}
+
+Produce a SOC-style investigation:
+
+## 1. Alert Summary
+
+## 2. Evidence
+
+List only evidence present in the alert.
+
+## 3. Severity Assessment
+
+Explain the reasoning.
+
+## 4. Possible Attack Scenario
+
+Describe the most likely interpretation,
+while clearly labeling assumptions.
+
+## 5. MITRE ATT&CK Mapping
+
+Provide likely techniques when supported.
+
+## 6. Investigation Checklist
+
+Provide concrete defensive investigation steps.
+
+## 7. Useful Queries
+
+Suggest example SIEM/EDR queries where appropriate.
+
+## 8. Containment Considerations
+
+Describe defensive containment options.
+
+## 9. False Positive Possibilities
+
+List legitimate explanations that should be ruled out.
+"""
+
+            with st.spinner("Investigating alert..."):
+                result = ask_ai(prompt)
+
+            st.markdown(result)
+
+
+# ============================================================
+# TAB 6 - REPORT GENERATOR
+# ============================================================
+
+with tabs[5]:
+
+    st.header("📝 Security Finding / Report Generator")
+
+    finding_title = st.text_input(
+        "Finding Title",
+        placeholder="Exposed Administrative Service"
+    )
+
+    severity = st.selectbox(
+        "Severity",
+        ["Critical", "High", "Medium", "Low", "Informational"]
+    )
+
+    evidence = st.text_area(
+        "Evidence",
+        height=250,
+        placeholder="Describe the evidence you collected..."
+    )
+
+    impact = st.text_area(
+        "Impact",
+        height=150,
+        placeholder="What could this mean for the system?"
+    )
+
+    remediation = st.text_area(
+        "Known Remediation",
+        height=150,
+        placeholder="Any remediation information you already have..."
+    )
+
+    if st.button("📄 Generate Report", type="primary"):
+
+        if not finding_title or not evidence:
+            st.warning("Finding title and evidence are required.")
+        else:
+
+            prompt = f"""
+Create a professional cybersecurity finding.
+
+Title:
+{finding_title}
+
+Severity:
+{severity}
+
+Evidence:
+{evidence}
+
+Potential Impact:
+{impact}
+
+Known Remediation:
+{remediation}
+
+Use this structure:
+
+# {finding_title}
+
+## Severity
+
+## Executive Summary
+
+## Technical Description
+
+## Evidence
+
+## Security Impact
+
+## Reproduction / Validation
+
+Describe only the validation supported by the supplied evidence.
+
+## Remediation
+
+## Detection Recommendations
+
+## References / Mapping
+
+If there is insufficient information for a section,
+state what information is missing instead of inventing it.
+"""
+
+            with st.spinner("Generating security report..."):
+                result = ask_ai(prompt)
+
+            st.markdown(result)
+
+            st.download_button(
+                "⬇️ Download Report",
+                result,
+                file_name="security_finding.md",
+                mime="text/markdown"
+            )
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+with st.sidebar:
+
+    st.header("🛡️ Cybersecurity Assistant")
+
+    st.markdown("""
+### Modules
+
+🔍 Log Analysis  
+🌐 Nmap Analysis  
+📡 HTTP Analysis  
+🧠 KQL Generation  
+🚨 Alert Investigation  
+📝 Security Reports  
+
+---
+
+### Usage
+
+Use this application for:
+
+- Security labs
+- CTFs
+- SOC investigations
+- Log analysis
+- Authorized penetration testing
+- Security documentation
+
+Always analyze systems and data you are
+authorized to assess.
+""")
+
+    st.divider()
+
+    st.caption(f"Model: {MODEL}")
